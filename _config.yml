@@ -21,7 +21,7 @@
 title: Raghav Kuppan
 email: raghav.kuppan@outlook.com
 description: >- # this means to ignore newlines until "baseurl:"
-   Hello, I'm Raghav Kuppan. I currently live in Bangalore and work as a Software Engineer. 
+   Hello, I'm Raghav Kuppan.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  rkjk
