@@ -1,0 +1,19 @@
+---
+title: All Posts
+layout: default
+---
+
+<link rel="stylesheet" href="{{ site.baseurl }}/assets/css/main.css">
+
+<div class="welcome-container">
+    <h1>All Posts</h1>
+</div>
+
+<div class="archive-container">
+    {% for post in site.posts %}
+        <div class="post-item">
+            <a href="{{ post.url }}" class="post-title">{{ post.title }}</a>
+            <span class="post-date">{{ post.date | date: "%Y-%m-%d" }}</span>
+        </div>
+    {% endfor %}
+</div>
