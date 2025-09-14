@@ -4,8 +4,22 @@
 const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null };
 const clientId = Math.floor(1000 + Math.random() * 9000);
 let websocket = null, mediaStream = null, audioContext = null, processorNode = null, sending = false;
-let currentResult = null; const historyResults = []; const MAX_NO_RESULT_MS = 5 * 60 * 1000; let noResultTimerId = null;
-let authToken = null; let isAuthenticated = false;
+let currentResult = null; 
+const historyResults = []; 
+
+// Enhanced timeout constants
+const MAX_NO_RESULT_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_TOTAL_RECORDING_MS = 15 * 60 * 1000; // 15 minutes absolute max
+const RECORDING_WARNING_MS = 10 * 60 * 1000; // 10 minutes warning
+
+// Enhanced timer variables
+let noResultTimerId = null;
+let totalRecordingTimerId = null;
+let recordingWarningTimerId = null;
+let recordingStartTime = null;
+
+let authToken = null; 
+let isAuthenticated = false;
 
 // const AUTH_SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') 
 //   ? 'http://localhost:8765' 
@@ -15,9 +29,60 @@ const AUTH_SERVER_URL = "https://raga-server-103463628326.asia-south1.run.app"
 // const SERVER_URL = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? 'ws://localhost:8765/ws' : 'wss://dxcc8tiege.us-east-2.awsapprunner.com:8765/ws';
 const SERVER_URL = "wss://raga-server-103463628326.asia-south1.run.app/ws";
 
-function clearNoResultTimer(){ if(noResultTimerId!=null){ clearTimeout(noResultTimerId); noResultTimerId=null; } }
-function armNoResultTimer(){ clearNoResultTimer(); noResultTimerId=setTimeout(()=>{ setStatus('Sorry, connection timed out. Please start a new recording'); try{stopRecording();}catch(_){} try{closeWebSocket();}catch(_){} }, MAX_NO_RESULT_MS); }
-function resetNoResultTimer(){ if(sending || (websocket && websocket.readyState===WebSocket.OPEN)){ armNoResultTimer(); } else { clearNoResultTimer(); } }
+// Enhanced timer management functions
+function clearAllTimers() {
+  if (noResultTimerId != null) { 
+    clearTimeout(noResultTimerId); 
+    noResultTimerId = null; 
+  }
+  if (totalRecordingTimerId != null) { 
+    clearTimeout(totalRecordingTimerId); 
+    totalRecordingTimerId = null; 
+  }
+  if (recordingWarningTimerId != null) { 
+    clearTimeout(recordingWarningTimerId); 
+    recordingWarningTimerId = null; 
+  }
+}
+
+function clearNoResultTimer(){ 
+  if(noResultTimerId != null){ 
+    clearTimeout(noResultTimerId); 
+    noResultTimerId = null; 
+  } 
+}
+
+function armNoResultTimer(){ 
+  clearNoResultTimer(); 
+  noResultTimerId = setTimeout(() => { 
+    setStatus('Sorry, connection timed out. Please start a new recording'); 
+    try { stopRecording(); } catch(_) {} 
+    try { closeWebSocket(); } catch(_) {} 
+  }, MAX_NO_RESULT_MS); 
+}
+
+function armTotalRecordingTimer() {
+  // Warning timer
+  recordingWarningTimerId = setTimeout(() => {
+    const remainingMinutes = Math.ceil((MAX_TOTAL_RECORDING_MS - RECORDING_WARNING_MS) / 60000);
+    setStatus(`Recording will auto-stop in ${remainingMinutes} minutes. Click stop/start to continue if needed.`);
+  }, RECORDING_WARNING_MS);
+  
+  // Absolute cutoff timer
+  totalRecordingTimerId = setTimeout(() => {
+    setStatus('Recording stopped automatically after 15 minutes. Click start to begin a new session.');
+    try { stopRecording(); } catch(_) {}
+    try { closeWebSocket(); } catch(_) {}
+  }, MAX_TOTAL_RECORDING_MS);
+}
+
+function resetNoResultTimer(){ 
+  if(sending || (websocket && websocket.readyState === WebSocket.OPEN)){ 
+    armNoResultTimer(); 
+  } else { 
+    clearNoResultTimer(); 
+  } 
+}
 
 const TARGET_SAMPLE_RATE = 44100; const CHUNK_SECONDS = 4.0; let buffer441Mono = new Float32Array(0);
 function setStatus(t){ ui.status.textContent=t; }
@@ -162,13 +227,14 @@ function flushIfNeeded(){ const targetSamples=Math.floor(CHUNK_SECONDS*TARGET_SA
 async function startRecording(){
   if(sending) return;
   sending=true;
+  recordingStartTime = Date.now(); // Track start time
   ui.startBtn.disabled=true;
   ui.stopBtn.disabled=false;
   setStatus('Requesting microphone...');
   
-  let mediaStream = null;
-  let audioContext = null;
-
+  // Start the absolute recording timer
+  armTotalRecordingTimer();
+  
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ 
       audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }, 
@@ -222,7 +288,35 @@ async function startRecording(){
   }
 }
 
-function stopRecording(){ if(!sending) return; sending=false; setStatus('Stopped'); try{ if(processorNode) processorNode.disconnect(); }catch(_){} try{ if(audioContext) audioContext.close(); }catch(_){} processorNode=null; audioContext=null; if(mediaStream){ for(const track of mediaStream.getTracks()) track.stop(); mediaStream=null; } buffer441Mono=new Float32Array(0); if(currentResult && currentResult.raga){ historyResults.unshift(currentResult); if(historyResults.length>5) historyResults.length=5; } currentResult=null; renderCurrent(); renderHistory(); ui.startBtn.disabled=false; ui.stopBtn.disabled=true; clearNoResultTimer(); }
+function stopRecording(){ 
+  if(!sending) return; 
+  sending=false; 
+  recordingStartTime = null;
+  
+  setStatus('Stopped'); 
+  
+  // Clear all timers
+  clearAllTimers();
+  
+  try{ if(processorNode) processorNode.disconnect(); }catch(_){} 
+  try{ if(audioContext) audioContext.close(); }catch(_){} 
+  processorNode=null; 
+  audioContext=null; 
+  if(mediaStream){ 
+    for(const track of mediaStream.getTracks()) track.stop(); 
+    mediaStream=null; 
+  } 
+  buffer441Mono=new Float32Array(0); 
+  if(currentResult && currentResult.raga){ 
+    historyResults.unshift(currentResult); 
+    if(historyResults.length>5) historyResults.length=5; 
+  } 
+  currentResult=null; 
+  renderCurrent(); 
+  renderHistory(); 
+  ui.startBtn.disabled=false; 
+  ui.stopBtn.disabled=true; 
+}
 
 async function initUI(){ 
   ui.startBtn=document.getElementById('startBtn'); 
