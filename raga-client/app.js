@@ -11,7 +11,9 @@ let authToken = null; let isAuthenticated = false;
 //   ? 'http://localhost:8765' 
 //   : 'https://dxcc8tiege.us-east-2.awsapprunner.com:8765';
 
-const AUTH_SERVER_URL = "https://dxcc8tiege.us-east-2.awsapprunner.com"
+const AUTH_SERVER_URL = "https://raga-server-103463628326.asia-south1.run.app"
+// const SERVER_URL = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? 'ws://localhost:8765/ws' : 'wss://dxcc8tiege.us-east-2.awsapprunner.com:8765/ws';
+const SERVER_URL = "wss://raga-server-103463628326.asia-south1.run.app/ws";
 
 function clearNoResultTimer(){ if(noResultTimerId!=null){ clearTimeout(noResultTimerId); noResultTimerId=null; } }
 function armNoResultTimer(){ clearNoResultTimer(); noResultTimerId=setTimeout(()=>{ setStatus('Sorry, connection timed out. Please start a new recording'); try{stopRecording();}catch(_){} try{closeWebSocket();}catch(_){} }, MAX_NO_RESULT_MS); }
@@ -89,9 +91,6 @@ async function checkExistingAuth() {
 }
 
 async function ensureServiceWorker(){ try{ const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1'; if('serviceWorker' in navigator){ if(isLocalhost){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); } } else { await navigator.serviceWorker.register(`${document.baseURI.endsWith('/')?document.baseURI.slice(0,-1):document.baseURI}/service-worker.js`.replace(/\/index\.html$/,'')); } } } catch(e){} }
-
-// const SERVER_URL = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? 'ws://localhost:8765/ws' : 'wss://dxcc8tiege.us-east-2.awsapprunner.com:8765/ws';
-const SERVER_URL = "wss://dxcc8tiege.us-east-2.awsapprunner.com/ws";
 
 function connectWebSocket(){ 
   if (!isAuthenticated || !authToken) {
