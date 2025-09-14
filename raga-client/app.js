@@ -11,7 +11,7 @@ let authToken = null; let isAuthenticated = false;
 //   ? 'http://localhost:8765' 
 //   : 'https://dxcc8tiege.us-east-2.awsapprunner.com:8765';
 
-AUTH_SERVER_URL = "https://dxcc8tiege.us-east-2.awsapprunner.com"
+const AUTH_SERVER_URL = "https://dxcc8tiege.us-east-2.awsapprunner.com"
 
 function clearNoResultTimer(){ if(noResultTimerId!=null){ clearTimeout(noResultTimerId); noResultTimerId=null; } }
 function armNoResultTimer(){ clearNoResultTimer(); noResultTimerId=setTimeout(()=>{ setStatus('Sorry, connection timed out. Please start a new recording'); try{stopRecording();}catch(_){} try{closeWebSocket();}catch(_){} }, MAX_NO_RESULT_MS); }
