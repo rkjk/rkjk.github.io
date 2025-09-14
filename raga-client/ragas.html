@@ -1,0 +1,80 @@
+---
+layout: default
+title: Supported Ragas
+permalink: /raga-client/ragas.html
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Supported Ragas</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin:0; padding:0; background:#000; color:#fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
+      .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+      h1 { font-size: 1.25rem; margin: 12px 0 8px; color:#fff; }
+      .search { display:flex; gap:8px; align-items:center; margin: 8px 0 16px; }
+      .search input { flex:1; padding: 12px; border-radius: 10px; border: 1px solid #404040; background: #0a0a0a; color: #fff; }
+      .card { background: #0a0a0a; border: 1px solid #262626; border-radius: 12px; padding: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #262626; }
+      th { font-weight: 700; color:#e5e7eb; }
+      .muted { opacity: .8; color:#d4d4d4; }
+      .count { font-size: .9rem; opacity: .9; margin-bottom: 8px; color:#d4d4d4; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Supported Ragas</h1>
+      <div class="search">
+        <input id="q" type="search" placeholder="Search ragas... (filters as you type)" autocomplete="off" />
+      </div>
+      <div class="card">
+        <div class="count" id="count"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Raga</th>
+            </tr>
+          </thead>
+          <tbody id="list"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const RAGAS_25 = ["Saveri","Hemavathi","Thodi","Sindhubhairavi","Sankarabharanam","Kambhoji","Kalyani","Bhairavi","Mohanam","Anandabhairavi","Mukhari","Reethigowla","Panthuvarali","Madhyamavathi","Dhanyasi","Mayamalavagowla","Suruti","Kedaragowla","Khamas","Kapi","Begada","Sowrashtram","Karaharapriya","Nata","Atana"]; // 25
+      const RAGAS_25_5 = ["Behag","Yadukulakambhoji","Poorvikalyani","Sri","Sahana"]; // +5 = 30
+      const EXP_30_35 = ["Hindolam","Ahiri","Shanmukapriya","Kaanada","Bilahari","Natakurinji","Neelambari","Bowli","Hamsadhwani","Lalitha","Varali","Abhogi","Purvi","Samanta","Arabhi","Sama","Bhoopalam","Kannada","Devagandhari","Huseni","Simhendramadhyamam","Gowla","Keeravani","Asaveri","Chakravakam","Sriranjani","Saranga","Darbar","Vasantha","Harikambhoji","Chenchurutti","Kurinji","Nadanamakriya","Punnagavarali","Yamunakalyani"]; // +35 = 65
+      const EXP_65_77 = ["Kunthalavarali","Charukesi","Paadi","Paras","Subhapanthuvarali","Gowrimanohari","Ramakriya","Vachaspathi","Shuddha dhanyasi","Bageshree","Kedaram","Navaroj","Hamirkalyani","Desh","Amrithavarshini","Ranjani","Malayamarutham","Maand","Manji","Revathi","Dharmavathi","Salanganata","Abheri","Gowlipanthu","Dwijavanthi","Saraswathi","Revagupthi","Manirangu","Devamanohari","Hamsanandi","Mandari","Natabhairavi","Thilang","Andolika","Bahudhari","Brindavana saranga","Chalanata","Chandrajyothi","Chandrakowns","Darbari kaanada","Gambheeranata","Ganamoorthi","Hamsanadam","Jaganmohini","Janaranjani","Jayanthashree","Kadanakuthuhalam","Kalavathi","Kalyanavasantham","Kamalamanohari","Kannadagowla","Karnaranjani","Lathangi","Madhuvanthi","Malahari","Mohanakalyani","Nagaswaravali","Nalinakanthi","Nasikabhushani","Navarasa kannada","Nayaki","Neethimathi","Poornachandrika","Poornashadjam","Ramapriya","Rasikapriya","Ratipatipriya","Saramathi","Sarasangi","Shivaranjani","Sumanesaranjani","Sunadhavinodhini","Soorya","Valaji","Varamu","Vasanthi","Vijayanagari"]; // +77 = 142
+
+      const ALL_KEYS = [...RAGAS_25, ...RAGAS_25_5, ...EXP_30_35, ...EXP_65_77];
+      const rows = ALL_KEYS.map(k => ({ key: k }));
+      rows.sort((a,b) => a.key.localeCompare(b.key, undefined, { sensitivity: 'base' }));
+
+      const tbody = document.getElementById('list');
+      const count = document.getElementById('count');
+      const q = document.getElementById('q');
+
+      function render(filter) {
+        const f = (filter || '').trim().toLowerCase();
+        const filtered = f ? rows.filter(r => r.key.toLowerCase().includes(f)) : rows;
+        tbody.innerHTML = '';
+        filtered.forEach(r => {
+          const tr = document.createElement('tr');
+          const td1 = document.createElement('td');
+          td1.textContent = r.key;
+          tr.appendChild(td1);
+          tbody.appendChild(tr);
+        });
+        count.textContent = `${filtered.length} of ${rows.length}`;
+      }
+
+      q.addEventListener('input', () => render(q.value));
+      render('');
+    </script>
+  </body>
+  </html>
+
+
