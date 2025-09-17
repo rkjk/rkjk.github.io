@@ -89,30 +89,89 @@ function setStatus(t){ ui.status.textContent=t; }
 function setAuthStatus(t){ if(ui.authStatus) ui.authStatus.textContent=t; }
 function float32ToBase64(arr){ const bytes=new Uint8Array(arr.buffer); let binary=''; const chunk=0x8000; for(let i=0;i<bytes.length;i+=chunk){ const sub=bytes.subarray(i,i+chunk); binary+=String.fromCharCode.apply(null, sub);} return btoa(binary); }
 
+// Enhanced authentication function with retry logic and loading indicators
 async function loginWithPassword(password) {
-  try {
-    const response = await fetch(`${AUTH_SERVER_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: password.trim() })
-    });
-    
-    const data = await response.json();
-    
-    if (response.ok && data.success) {
-      authToken = data.token;
-      isAuthenticated = true;
-      showAuthenticatedUI();
-      setAuthStatus(`Access granted! Token expires in ${data.expires_in_hours} hours.`);
-      return true;
-    } else {
-      setAuthStatus(`Error: ${data.error || 'Authentication failed'}`);
-      return false;
+  const maxRetries = 3;
+  const retryDelay = 30000; // 30 seconds
+  let attempt = 1;
+  
+  // Show loading state
+  ui.authBtn.disabled = true;
+  ui.authBtn.innerHTML = `
+    <span class="spinner"></span>
+    Connecting... (${attempt}/${maxRetries})
+  `;
+  
+  while (attempt <= maxRetries) {
+    try {
+      setAuthStatus(`Attempt ${attempt}/${maxRetries}: Connecting to server...`);
+      
+      // Set a timeout for the fetch request (slightly less than retry delay)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 seconds timeout
+      
+      const response = await fetch(`${AUTH_SERVER_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password.trim() }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        authToken = data.token;
+        isAuthenticated = true;
+        showAuthenticatedUI();
+        setAuthStatus(`✅ Access granted! Token expires in ${data.expires_in_hours} hours.`);
+        
+        // Reset button state
+        ui.authBtn.disabled = false;
+        ui.authBtn.innerHTML = 'Login';
+        
+        return true;
+      } else {
+        // Server responded but authentication failed - don't retry
+        setAuthStatus(`❌ ${data.error || 'Authentication failed'}`);
+        ui.authBtn.disabled = false;
+        ui.authBtn.innerHTML = 'Login';
+        return false;
+      }
+      
+    } catch (error) {
+      console.warn(`Login attempt ${attempt} failed:`, error);
+      
+      if (attempt === maxRetries) {
+        // Final attempt failed
+        const errorMsg = error.name === 'AbortError' 
+          ? 'Server is taking too long to respond (cold start). Please try again in a few minutes.'
+          : `Unable to connect to server: ${error.message}`;
+        
+        setAuthStatus(`❌ ${errorMsg}`);
+        ui.authBtn.disabled = false;
+        ui.authBtn.innerHTML = 'Login';
+        return false;
+      }
+      
+      // Show retry countdown
+      setAuthStatus(`⏳ Server starting up... Retrying in 30 seconds (attempt ${attempt + 1}/${maxRetries})`);
+      
+      // Update button with countdown
+      for (let i = 30; i >= 1; i--) {
+        ui.authBtn.innerHTML = `
+          <span class="spinner"></span>
+          Retrying in ${i}s... (${attempt + 1}/${maxRetries})
+        `;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      attempt++;
     }
-  } catch (error) {
-    setAuthStatus(`Error: Unable to connect to server. ${error.message}`);
-    return false;
   }
+  
+  return false;
 }
 
 function showAuthenticatedUI() {
@@ -121,42 +180,60 @@ function showAuthenticatedUI() {
   if (ui.startBtn) ui.startBtn.disabled = false;
 }
 
+// Enhanced checkExistingAuth with better error handling
 async function checkExistingAuth() {
   const storedToken = localStorage.getItem('raga_auth_token');
   if (storedToken) {
     try {
+      // Show checking status
+      setAuthStatus('🔍 Verifying existing authentication...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for verification
+      
       const response = await fetch(`${AUTH_SERVER_URL}/auth/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: storedToken })
+        body: JSON.stringify({ token: storedToken }),
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
       const data = await response.json();
       
       if (response.ok && data.valid) {
         authToken = storedToken;
         isAuthenticated = true;
         showAuthenticatedUI();
-        setAuthStatus('Welcome back! You are already authenticated.');
+        setAuthStatus('✅ Welcome back! You are already authenticated.');
+        return;
       } else {
         console.warn('Stored token is invalid or expired. Please log in again.');
         localStorage.removeItem('raga_auth_token');
         showAuthUI();
+        setAuthStatus('🔑 Please log in again (token expired).');
+        return;
       }
     } catch (error) {
       console.error('Failed to verify token with server:', error);
-      // Assume offline or server issue, prompt for login
       showAuthUI();
-      setAuthStatus('Could not verify token with server. Please log in.');
+      if (error.name === 'AbortError') {
+        setAuthStatus('⚠️ Server verification timed out. Please log in to continue.');
+      } else {
+        setAuthStatus('⚠️ Could not verify with server. Please log in.');
+      }
+      return;
     }
   } else {
     // No token found, show the auth UI by default
     showAuthUI();
+    setAuthStatus('🔑 Please enter your password to access the raga analyzer.');
   }
 }
 
 async function ensureServiceWorker(){ try{ const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1'; if('serviceWorker' in navigator){ if(isLocalhost){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); } } else { await navigator.serviceWorker.register(`${document.baseURI.endsWith('/')?document.baseURI.slice(0,-1):document.baseURI}/service-worker.js`.replace(/\/index\.html$/,'')); } } } catch(e){} }
 
+// Enhanced WebSocket connection with better cold start handling
 function connectWebSocket(){ 
   if (!isAuthenticated || !authToken) {
     setStatus('Please authenticate first');
@@ -164,31 +241,48 @@ function connectWebSocket(){
   }
   
   if(websocket && (websocket.readyState===WebSocket.OPEN || websocket.readyState===WebSocket.CONNECTING)){ 
-    return new Promise((resolve)=>{ if(websocket.readyState===WebSocket.OPEN) return resolve(); websocket.addEventListener('open',()=>resolve(),{once:true}); }); 
+    return new Promise((resolve)=>{ 
+      if(websocket.readyState===WebSocket.OPEN) return resolve(); 
+      websocket.addEventListener('open',()=>resolve(),{once:true}); 
+    }); 
   }
   
+  setStatus('🔌 Connecting to analysis server...');
+  
   websocket = new WebSocket(SERVER_URL);
+  
+  // Add connection timeout
+  const connectionTimeout = setTimeout(() => {
+    if (websocket.readyState === WebSocket.CONNECTING) {
+      websocket.close();
+      setStatus('❌ Connection timed out. Please try again.');
+    }
+  }, 15000); // 15 second connection timeout
+  
   websocket.onopen = ()=>{ 
-    setStatus('Connected'); 
+    clearTimeout(connectionTimeout);
+    setStatus('🔐 Authenticating with server...'); 
     // Send auth token first
     websocket.send(JSON.stringify({ auth_token: authToken }));
   };
+  
   websocket.onmessage = (ev)=>{ 
     try{ 
       const data=JSON.parse(ev.data); 
       if(data.status==='authenticated'){
-        setStatus('Authenticated and ready');
+        setStatus('✅ Connected and ready to analyze');
         // Now that we're authenticated, send the client ID
         websocket.send(JSON.stringify({ client_id: clientId })); 
         ui.stopBtn.disabled=false;
         resetNoResultTimer();
       } else if(data.status==='error'){
-        setStatus(`Error: ${data.message}`);
+        setStatus(`❌ Server error: ${data.message}`);
         if(data.message.includes('Authentication')) {
           isAuthenticated = false;
           authToken = null;
           localStorage.removeItem('raga_auth_token');
           showAuthUI();
+          setAuthStatus('🔑 Session expired. Please log in again.');
         }
       } else if(data.status==='inference_result'){ 
         resetNoResultTimer(); 
@@ -203,12 +297,22 @@ function connectWebSocket(){
         renderCurrent(); 
       } else if(data.status==='accumulating'){ 
         const pct = Number(data.percentage||0).toFixed(2); 
-        setStatus(`Accumulating: ${pct}%`); 
+        setStatus(`🎵 Analyzing audio: ${pct}%`); 
       } 
     } catch(_){} 
   };
-  websocket.onerror=()=>{}; 
-  websocket.onclose=()=>{ setStatus('Disconnected'); stopRecording(); };
+  
+  websocket.onerror=()=>{
+    clearTimeout(connectionTimeout);
+    setStatus('❌ Connection error occurred');
+  }; 
+  
+  websocket.onclose=()=>{ 
+    clearTimeout(connectionTimeout);
+    setStatus('🔌 Disconnected from server'); 
+    stopRecording(); 
+  };
+  
   return new Promise((resolve)=>setTimeout(resolve,0));
 }
 
@@ -318,6 +422,63 @@ function stopRecording(){
   ui.stopBtn.disabled=true; 
 }
 
+// Add CSS for spinner animation (add this to your HTML head or CSS file)
+const spinnerCSS = `
+<style>
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #333;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.auth-status {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.auth-status:empty {
+  display: none;
+}
+</style>
+`;
+
+// Inject spinner CSS if it doesn't exist
+if (!document.querySelector('style[data-spinner-css]')) {
+  const style = document.createElement('style');
+  style.setAttribute('data-spinner-css', 'true');
+  style.innerHTML = `
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #333;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+  `;
+  document.head.appendChild(style);
+}
+
 async function initUI(){ 
   ui.startBtn=document.getElementById('startBtn'); 
   ui.stopBtn=document.getElementById('stopBtn'); 
@@ -333,27 +494,26 @@ async function initUI(){
   
   if(!ui.startBtn||!ui.stopBtn||!ui.status||!ui.ragaName||!ui.ragaConf||!ui.historyList){ return; } 
   
-  setStatus('Idle'); 
+  setStatus('🔧 Initializing...'); 
   ui.stopBtn.disabled=true; 
   ui.startBtn.disabled=true;
   
-  // Call the new, async checkExistingAuth function here
+  // Call the enhanced checkExistingAuth function
   await checkExistingAuth();
   
   if (ui.authBtn && ui.passwordInput) {
     ui.authBtn.addEventListener('click', async ()=>{
       const password = ui.passwordInput.value;
       if (!password.trim()) {
-        setAuthStatus('Please enter a password');
+        setAuthStatus('⚠️ Please enter a password');
+        ui.passwordInput.focus();
         return;
       }
-      ui.authBtn.disabled = true;
-      ui.authBtn.textContent = 'Logging in...';
+      
       const success = await loginWithPassword(password);
-      ui.authBtn.disabled = false;
-      ui.authBtn.textContent = 'Login';
       if (success) {
         localStorage.setItem('raga_auth_token', authToken);
+        ui.passwordInput.value = ''; // Clear password field
       }
     });
     
@@ -362,20 +522,42 @@ async function initUI(){
         ui.authBtn.click();
       }
     });
+    
+    // Clear any error messages when user starts typing
+    ui.passwordInput.addEventListener('input', ()=>{
+      if (ui.authStatus.textContent.includes('❌') || ui.authStatus.textContent.includes('⚠️')) {
+        setAuthStatus('');
+      }
+    });
   }
   
   ui.startBtn.addEventListener('click', async ()=>{ 
     if (!isAuthenticated) {
-      setStatus('Please authenticate first');
+      setStatus('⚠️ Please authenticate first');
       return;
     }
-    await connectWebSocket();
-    await startRecording(); 
-    resetNoResultTimer(); 
+    
+    try {
+      await connectWebSocket();
+      await startRecording(); 
+      resetNoResultTimer();
+    } catch (error) {
+      setStatus(`❌ Failed to start: ${error.message || error}`);
+    }
   }); 
-  ui.stopBtn.addEventListener('click', ()=>{ stopRecording(); closeWebSocket(); }); 
+  
+  ui.stopBtn.addEventListener('click', ()=>{ 
+    stopRecording(); 
+    closeWebSocket(); 
+  }); 
+  
+  // Set initial status
+  if (isAuthenticated) {
+    setStatus('✅ Ready to analyze ragas');
+  } else {
+    setStatus('🔑 Please log in to continue');
+  }
 }
-
 
 function renderCurrent(){ if(!currentResult||!currentResult.raga||currentResult.pct===null||!isFinite(currentResult.pct)){ ui.ragaName.textContent='—'; ui.ragaConf.textContent='—'; } else { ui.ragaName.textContent=currentResult.raga; ui.ragaConf.textContent=`${currentResult.pct}%`; } }
 function renderHistory(){ if(!ui.historyList) return; ui.historyList.innerHTML=''; for(let i=0;i<Math.min(historyResults.length,5);i++){ const item=historyResults[i]; const row=document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.border='1px solid rgba(125,125,125,0.25)'; row.style.borderRadius='8px'; row.style.padding='8px 12px'; const left=document.createElement('div'); left.textContent=item.raga||'—'; left.style.fontWeight='600'; const right=document.createElement('div'); right.textContent=(item.pct!=null && isFinite(item.pct))?`${item.pct}%`:'—'; ui.historyList.appendChild(row); row.appendChild(left); row.appendChild(right); } }
