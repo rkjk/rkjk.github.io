@@ -1,7 +1,5 @@
-// Copied from raga-analysis PWA and adjusted for baseurl paths.
-// See original at raga_python/pwa/app.js
 
-const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null };
+const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null, recordingTimer: null, keepRecordingBtn: null, ragasBtn: null, ragasModal: null, ragasModalClose: null, ragasSearch: null, ragasCount: null, ragasList: null };
 const clientId = Math.floor(1000 + Math.random() * 9000);
 let websocket = null, mediaStream = null, audioContext = null, processorNode = null, sending = false;
 let currentResult = null; 
@@ -17,16 +15,22 @@ let noResultTimerId = null;
 let totalRecordingTimerId = null;
 let recordingWarningTimerId = null;
 let recordingStartTime = null;
+let recordingTimerId = null;
+let timerStartTime = 0;
 
 let authToken = null; 
 let isAuthenticated = false;
 
-// const AUTH_SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') 
-//   ? 'http://localhost:8765' 
-//   : 'https://dxcc8tiege.us-east-2.awsapprunner.com:8765';
+// Ragas data
+const RAGAS_25 = ["Saveri","Hemavathi","Thodi","Sindhubhairavi","Sankarabharanam","Kambhoji","Kalyani","Bhairavi","Mohanam","Anandabhairavi","Mukhari","Reethigowla","Panthuvarali","Madhyamavathi","Dhanyasi","Mayamalavagowla","Suruti","Kedaragowla","Khamas","Kapi","Begada","Sowrashtram","Karaharapriya","Nata","Atana"];
+const RAGAS_25_5 = ["Behag","Yadukulakambhoji","Poorvikalyani","Sri","Sahana"];
+const EXP_30_35 = ["Hindolam","Ahiri","Shanmukapriya","Kaanada","Bilahari","Natakurinji","Neelambari","Bowli","Hamsadhwani","Lalitha","Varali","Abhogi","Purvi","Samanta","Arabhi","Sama","Bhoopalam","Kannada","Devagandhari","Huseni","Simhendramadhyamam","Gowla","Keeravani","Asaveri","Chakravakam","Sriranjani","Saranga","Darbar","Vasantha","Harikambhoji","Chenchurutti","Kurinji","Nadanamakriya","Punnagavarali","Yamunakalyani"];
+const EXP_65_77 = ["Kunthalavarali","Charukesi","Paadi","Paras","Subhapanthuvarali","Gowrimanohari","Ramakriya","Vachaspathi","Shuddha dhanyasi","Bageshree","Kedaram","Navaroj","Hamirkalyani","Desh","Amrithavarshini","Ranjani","Malayamarutham","Maand","Manji","Revathi","Dharmavathi","Salanganata","Abheri","Gowlipanthu","Dwijavanthi","Saraswathi","Revagupthi","Manirangu","Devamanohari","Hamsanandi","Mandari","Natabhairavi","Thilang","Andolika","Bahudhari","Brindavana saranga","Chalanata","Chandrajyothi","Chandrakowns","Darbari kaanada","Gambheeranata","Ganamoorthi","Hamsanadam","Jaganmohini","Janaranjani","Jayanthashree","Kadanakuthuhalam","Kalavathi","Kalyanavasantham","Kamalamanohari","Kannadagowla","Karnaranjani","Lathangi","Madhuvanthi","Malahari","Mohanakalyani","Nagaswaravali","Nalinakanthi","Nasikabhushani","Navarasa kannada","Nayaki","Neethimathi","Poornachandrika","Poornashadjam","Ramapriya","Rasikapriya","Ratipatipriya","Saramathi","Sarasangi","Shivaranjani","Sumanesaranjani","Sunadhavinodhini","Soorya","Valaji","Varamu","Vasanthi","Vijayanagari"];
+
+const ALL_RAGAS = [...RAGAS_25, ...RAGAS_25_5, ...EXP_30_35, ...EXP_65_77];
+const ragasData = ALL_RAGAS.map(name => ({ name })).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
 const AUTH_SERVER_URL = "https://raga-server-103463628326.asia-south1.run.app"
-// const SERVER_URL = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? 'ws://localhost:8765/ws' : 'wss://dxcc8tiege.us-east-2.awsapprunner.com:8765/ws';
 const SERVER_URL = "wss://raga-server-103463628326.asia-south1.run.app/ws";
 
 // Enhanced timer management functions
@@ -43,6 +47,8 @@ function clearAllTimers() {
     clearTimeout(recordingWarningTimerId); 
     recordingWarningTimerId = null; 
   }
+  stopRealTimeTimer();
+  hideKeepRecordingButton();
 }
 
 function clearNoResultTimer(){ 
@@ -54,11 +60,7 @@ function clearNoResultTimer(){
 
 function armNoResultTimer(){ 
   clearNoResultTimer(); 
-  noResultTimerId = setTimeout(() => { 
-    setStatus('Sorry, connection timed out. Please start a new recording'); 
-    try { stopRecording(); } catch(_) {} 
-    try { closeWebSocket(); } catch(_) {} 
-  }, MAX_NO_RESULT_MS); 
+  noResultTimerId = setTimeout(handleNoResultWarning, MAX_NO_RESULT_MS); 
 }
 
 function armTotalRecordingTimer() {
@@ -76,12 +78,64 @@ function armTotalRecordingTimer() {
   }, MAX_TOTAL_RECORDING_MS);
 }
 
+function handleNoResultWarning() {
+  setStatus('⚠️ No result received in 5 minutes. The recording will auto-stop in 60 seconds unless you press "Keep Recording".');
+  showKeepRecordingButton();
+
+  const finalStopTimer = setTimeout(() => {
+    setStatus('Recording auto-stopped due to inactivity.');
+    try { stopRecording(); } catch(_) {}
+    try { closeWebSocket(); } catch(_) {}
+  }, 60000); // 1 minute
+
+  if(ui.keepRecordingBtn) {
+    ui.keepRecordingBtn.onclick = () => {
+      clearTimeout(finalStopTimer);
+      hideKeepRecordingButton();
+      setStatus('✅ Recording continued.');
+      armNoResultTimer();
+    };
+  }
+}
+
 function resetNoResultTimer(){ 
   if(sending || (websocket && websocket.readyState === WebSocket.OPEN)){ 
     armNoResultTimer(); 
   } else { 
     clearNoResultTimer(); 
   } 
+}
+
+function startRealTimeTimer() {
+  timerStartTime = Date.now();
+  clearInterval(recordingTimerId);
+  recordingTimerId = setInterval(() => {
+    const elapsedSeconds = Math.floor((Date.now() - timerStartTime) / 1000);
+    const minutes = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
+    const seconds = (elapsedSeconds % 60).toString().padStart(2, '0');
+    if (ui.recordingTimer) {
+      ui.recordingTimer.textContent = `Time: ${minutes}:${seconds}`;
+    }
+  }, 1000);
+}
+
+function stopRealTimeTimer() {
+  clearInterval(recordingTimerId);
+  if (ui.recordingTimer) {
+    ui.recordingTimer.textContent = 'Time: 00:00';
+  }
+}
+
+function showKeepRecordingButton() {
+  if (ui.keepRecordingBtn) {
+    ui.keepRecordingBtn.style.display = 'block';
+  }
+}
+
+function hideKeepRecordingButton() {
+  if (ui.keepRecordingBtn) {
+    ui.keepRecordingBtn.style.display = 'none';
+  }
 }
 
 const TARGET_SAMPLE_RATE = 44100; const CHUNK_SECONDS = 4.0; let buffer441Mono = new Float32Array(0);
@@ -104,7 +158,7 @@ async function loginWithPassword(password) {
   
   while (attempt <= maxRetries) {
     try {
-      setAuthStatus(`Attempt ${attempt}/${maxRetries}: Connecting to server...`);
+      setAuthStatus(`Attempt ${attempt}/${maxRetries}: Connecting to server (Server might take a minute to start up).`);
       
       // Set a timeout for the fetch request (slightly less than retry delay)
       const controller = new AbortController();
@@ -286,6 +340,7 @@ function connectWebSocket(){
         }
       } else if(data.status==='inference_result'){ 
         resetNoResultTimer(); 
+        startRealTimeTimer();
         const prob = typeof data.probability==='number' ? data.probability : Number(data.probability||0); 
         const pct = Math.floor(prob*100); 
         if(currentResult && currentResult.raga){ 
@@ -338,6 +393,7 @@ async function startRecording(){
   
   // Start the absolute recording timer
   armTotalRecordingTimer();
+  startRealTimeTimer();
   
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ 
@@ -491,6 +547,14 @@ async function initUI(){
   ui.passwordInput=document.getElementById('passwordInput');
   ui.authBtn=document.getElementById('authBtn');
   ui.authStatus=document.getElementById('authStatus');
+  ui.recordingTimer=document.getElementById('recordingTimer');
+  ui.keepRecordingBtn=document.getElementById('keepRecordingBtn');
+  ui.ragasBtn=document.getElementById('ragasBtn');
+  ui.ragasModal=document.getElementById('ragasModal');
+  ui.ragasModalClose=document.getElementById('ragasModalClose');
+  ui.ragasSearch=document.getElementById('ragasSearch');
+  ui.ragasCount=document.getElementById('ragasCount');
+  ui.ragasList=document.getElementById('ragasList');
   
   if(!ui.startBtn||!ui.stopBtn||!ui.status||!ui.ragaName||!ui.ragaConf||!ui.historyList){ return; } 
   
@@ -557,10 +621,111 @@ async function initUI(){
   } else {
     setStatus('🔑 Please log in to continue');
   }
+  
+  // Modal event listeners
+  if (ui.ragasBtn) {
+    ui.ragasBtn.addEventListener('click', openRagasModal);
+  }
+  
+  if (ui.ragasModalClose) {
+    ui.ragasModalClose.addEventListener('click', closeRagasModal);
+  }
+  
+  if (ui.ragasModal) {
+    // Close modal when clicking outside the content
+    ui.ragasModal.addEventListener('click', (e) => {
+      if (e.target === ui.ragasModal) {
+        closeRagasModal();
+      }
+    });
+    
+    // Close modal with Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && ui.ragasModal.style.display === 'flex') {
+        closeRagasModal();
+      }
+    });
+  }
+  
+  if (ui.ragasSearch) {
+    ui.ragasSearch.addEventListener('input', (e) => {
+      renderRagasList(e.target.value);
+    });
+  }
 }
 
-function renderCurrent(){ if(!currentResult||!currentResult.raga||currentResult.pct===null||!isFinite(currentResult.pct)){ ui.ragaName.textContent='—'; ui.ragaConf.textContent='—'; } else { ui.ragaName.textContent=currentResult.raga; ui.ragaConf.textContent=`${currentResult.pct}%`; } }
-function renderHistory(){ if(!ui.historyList) return; ui.historyList.innerHTML=''; for(let i=0;i<Math.min(historyResults.length,5);i++){ const item=historyResults[i]; const row=document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.border='1px solid rgba(125,125,125,0.25)'; row.style.borderRadius='8px'; row.style.padding='8px 12px'; const left=document.createElement('div'); left.textContent=item.raga||'—'; left.style.fontWeight='600'; const right=document.createElement('div'); right.textContent=(item.pct!=null && isFinite(item.pct))?`${item.pct}%`:'—'; ui.historyList.appendChild(row); row.appendChild(left); row.appendChild(right); } }
+function renderCurrent(){ 
+  if(!currentResult||!currentResult.raga||currentResult.pct===null||!isFinite(currentResult.pct)){ 
+    ui.ragaName.textContent='—'; 
+    ui.ragaConf.textContent='—'; 
+  } else { 
+    ui.ragaName.textContent=currentResult.raga; 
+    ui.ragaConf.textContent=`${currentResult.pct}%`; 
+  }
+}
+
+function renderHistory(){ 
+  if(!ui.historyList) return; 
+  ui.historyList.innerHTML=''; 
+  for(let i=0;i<Math.min(historyResults.length,5);i++){ 
+    const item=historyResults[i]; 
+    const row=document.createElement('div'); 
+    row.style.display='flex'; 
+    row.style.justifyContent='space-between'; 
+    row.style.alignItems='center'; 
+    row.style.border='1px solid rgba(125,125,125,0.25)'; 
+    row.style.borderRadius='8px'; 
+    row.style.padding='8px 12px'; 
+    const left=document.createElement('div'); 
+    left.textContent=item.raga||'—'; 
+    left.style.fontWeight='600'; 
+    const right=document.createElement('div'); 
+    right.textContent=(item.pct!=null && isFinite(item.pct))?`${item.pct}%`:'—'; 
+    ui.historyList.appendChild(row); 
+    row.appendChild(left); 
+    row.appendChild(right); 
+  } 
+}
+
+// Modal functions
+function openRagasModal() {
+  if (ui.ragasModal) {
+    ui.ragasModal.style.display = 'flex';
+    renderRagasList('');
+    if (ui.ragasSearch) {
+      ui.ragasSearch.focus();
+    }
+  }
+}
+
+function closeRagasModal() {
+  if (ui.ragasModal) {
+    ui.ragasModal.style.display = 'none';
+    if (ui.ragasSearch) {
+      ui.ragasSearch.value = '';
+    }
+  }
+}
+
+function renderRagasList(filter) {
+  if (!ui.ragasList || !ui.ragasCount) return;
+  
+  const searchTerm = (filter || '').trim().toLowerCase();
+  const filteredRagas = searchTerm 
+    ? ragasData.filter(raga => raga.name.toLowerCase().includes(searchTerm))
+    : ragasData;
+  
+  ui.ragasList.innerHTML = '';
+  filteredRagas.forEach(raga => {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.textContent = raga.name;
+    row.appendChild(cell);
+    ui.ragasList.appendChild(row);
+  });
+  
+  ui.ragasCount.textContent = `${filteredRagas.length} of ${ragasData.length}`;
+}
 
 (async ()=>{ await ensureServiceWorker(); if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', initUI, { once:true }); } else { initUI(); } })();
 window.addEventListener('pagehide', ()=>{ try{ stopRecording(); }catch(_){} try{ closeWebSocket(); }catch(_){} });

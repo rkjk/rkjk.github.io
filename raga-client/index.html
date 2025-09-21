@@ -26,16 +26,127 @@ permalink: /raga-client/
       .status { margin-top: 12px; font-size: .95rem; opacity: .95; color: #e5e7eb; }
       .log { margin-top: 12px; max-height: 40vh; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .9rem; background: #111; border: 1px solid #262626; border-radius: 10px; padding: 12px; white-space: pre-wrap; color: #d4d4d4; }
       .footer { margin-top: 24px; font-size: .85rem; opacity: .9; color: #d4d4d4; }
+      
+      /* Modal styles */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+      }
+      
+      .modal-content {
+        background: #0a0a0a;
+        border: 1px solid #262626;
+        border-radius: 12px;
+        padding: 20px;
+        max-width: 90vw;
+        max-height: 90vh;
+        width: 600px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #262626;
+      }
+      
+      .modal-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #fff;
+        margin: 0;
+      }
+      
+      .modal-close {
+        background: none;
+        border: none;
+        color: #fff;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+      }
+      
+      .modal-close:hover {
+        background: #262626;
+      }
+      
+      .modal-search {
+        margin-bottom: 16px;
+      }
+      
+      .modal-search input {
+        width: 100%;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid #404040;
+        background: #0a0a0a;
+        color: #fff;
+        font-size: 1rem;
+      }
+      
+      .modal-body {
+        flex: 1;
+        overflow-y: auto;
+        max-height: 60vh;
+      }
+      
+      .ragas-count {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        margin-bottom: 12px;
+        color: #d4d4d4;
+      }
+      
+      .ragas-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      
+      .ragas-table th,
+      .ragas-table td {
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 1px solid #262626;
+      }
+      
+      .ragas-table th {
+        font-weight: 700;
+        color: #e5e7eb;
+        background: #111;
+        position: sticky;
+        top: 0;
+      }
+      
+      .ragas-table td {
+        color: #fff;
+      }
+      
+      .ragas-table tr:hover {
+        background: #111;
+      }
     </style>
   </head>
   <body>
     <div class="container">
       <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:8px;">
-        <a href="{{ site.baseurl }}/raga-client/ragas.html" style="text-decoration:none;">
-          <button class="secondary" style="cursor:pointer;">Supported Ragas</button>
-        </a>
+        <button id="ragasBtn" class="secondary" style="cursor:pointer;">Supported Ragas</button>
       </div>
-      <h1>Raga Live Inference (WebSocket)</h1>
+      <h1>Raga Recognizer</h1>
       <div class="card">
         <div class="row">
           <button id="startBtn" class="secondary">Start Recording</button>
@@ -74,8 +185,32 @@ permalink: /raga-client/
       </div>
     </div>
 
-    <script type="module" src="{{ site.baseurl }}/raga-client/app.js?v=4"></script>
+    <!-- Ragas Modal -->
+    <div id="ragasModal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">Supported Ragas</h2>
+          <button class="modal-close" id="ragasModalClose">&times;</button>
+        </div>
+        <div class="modal-search">
+          <input id="ragasSearch" type="search" placeholder="Search ragas... (filters as you type)" autocomplete="off" />
+        </div>
+        <div class="modal-body">
+          <div class="ragas-count" id="ragasCount"></div>
+          <table class="ragas-table">
+            <thead>
+              <tr>
+                <th>Raga</th>
+              </tr>
+            </thead>
+            <tbody id="ragasList"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="{{ site.baseurl }}/raga-client/app.js?v=5"></script>
   </body>
-  </html>
+</html>
 
 
