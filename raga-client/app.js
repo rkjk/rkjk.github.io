@@ -379,9 +379,60 @@ function showAuthUI() {
 
 function closeWebSocket(){ if(websocket){ try{ websocket.close(); } catch(_){} } }
 
-function convertToMono44100(input, sampleRate, channelCount){ let mono; if(channelCount===1){ mono=input; } else { mono=new Float32Array(input.length/channelCount); for(let i=0,j=0;i<input.length;i+=channelCount,j++){ let sum=0; for(let c=0;c<channelCount;c++) sum+=input[i+c]; mono[j]=sum/channelCount; } } if(sampleRate===TARGET_SAMPLE_RATE) return mono; const ratio=TARGET_SAMPLE_RATE/sampleRate; const newLength=Math.round(mono.length*ratio); const out=new Float32Array(newLength); for(let i=0;i<newLength;i++){ const srcIndex=i/ratio; const idx0=Math.floor(srcIndex); const idx1=Math.min(idx0+1, mono.length-1); const t=srcIndex-idx0; out[i]=mono[idx0]*(1-t)+mono[idx1]*t; } return out; }
-function appendToBuffer(existing, chunk){ const out=new Float32Array(existing.length+chunk.length); out.set(existing,0); out.set(chunk, existing.length); return out; }
-function flushIfNeeded(){ const targetSamples=Math.floor(CHUNK_SECONDS*TARGET_SAMPLE_RATE); while(buffer441Mono.length>=targetSamples){ const sendChunk=buffer441Mono.subarray(0,targetSamples); const remaining=buffer441Mono.subarray(targetSamples); buffer441Mono=new Float32Array(remaining.length); buffer441Mono.set(remaining,0); if(websocket && websocket.readyState===WebSocket.OPEN){ const audio_data=float32ToBase64(sendChunk); const msg={ client_id: clientId, audio_data }; websocket.send(JSON.stringify(msg)); } } }
+function convertToMono44100(input, sampleRate, channelCount){
+  let mono;
+  if(channelCount===1){
+    mono=input;
+  } else {
+    mono=new Float32Array(input.length/channelCount);
+    for(let i=0,j=0;i<input.length;i+=channelCount,j++){
+      let sum=0;
+      for(let c=0;c<channelCount;c++)
+        sum+=input[i+c];
+      mono[j]=sum/channelCount;
+    }
+  }
+  if(sampleRate===TARGET_SAMPLE_RATE)
+    return mono;
+  const ratio=TARGET_SAMPLE_RATE/sampleRate;
+  const newLength=Math.round(mono.length*ratio);
+  const out=new Float32Array(newLength);
+  for(let i=0;i<newLength;i++){
+    const srcIndex=i/ratio;
+    const idx0=Math.floor(srcIndex);
+    const idx1=Math.min(idx0+1, mono.length-1);
+    const t=srcIndex-idx0;
+    out[i]=mono[idx0]*(1-t)+mono[idx1]*t;
+  }
+  return out;
+}
+
+
+function appendToBuffer(existing, chunk){
+  const out=new Float32Array(existing.length+chunk.length);
+  out.set(existing,0);
+  out.set(chunk, existing.length);
+  return out;
+}
+
+
+function flushIfNeeded(){
+  const targetSamples = Math.floor(CHUNK_SECONDS*TARGET_SAMPLE_RATE);
+  while(buffer441Mono.length>=targetSamples){
+    const sendChunk=buffer441Mono.subarray(0,targetSamples);
+    const remaining=buffer441Mono.subarray(targetSamples);
+    buffer441Mono=new Float32Array(remaining.length);
+    buffer441Mono.set(remaining,0);
+    if(websocket && websocket.readyState===WebSocket.OPEN){
+      const audio_data=float32ToBase64(sendChunk);
+      const msg={
+        client_id: clientId,
+        audio_data
+        };
+      websocket.send(JSON.stringify(msg));
+    }
+  }
+}
 
 async function startRecording(){
   if(sending) return;
