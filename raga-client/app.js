@@ -48,7 +48,6 @@ function clearAllTimers() {
     recordingWarningTimerId = null; 
   }
   stopRealTimeTimer();
-  hideKeepRecordingButton();
 }
 
 function clearNoResultTimer(){ 
@@ -79,23 +78,7 @@ function armTotalRecordingTimer() {
 }
 
 function handleNoResultWarning() {
-  setStatus('⚠️ No result received in 5 minutes. The recording will auto-stop in 60 seconds unless you press "Keep Recording".');
-  showKeepRecordingButton();
-
-  const finalStopTimer = setTimeout(() => {
-    setStatus('Recording auto-stopped due to inactivity.');
-    try { stopRecording(); } catch(_) {}
-    try { closeWebSocket(); } catch(_) {}
-  }, 60000); // 1 minute
-
-  if(ui.keepRecordingBtn) {
-    ui.keepRecordingBtn.onclick = () => {
-      clearTimeout(finalStopTimer);
-      hideKeepRecordingButton();
-      setStatus('✅ Recording continued.');
-      armNoResultTimer();
-    };
-  }
+  setStatus('⚠️ No result received in 5 minutes. Audio quality may be poor - expect lower prediction accuracy.');
 }
 
 function resetNoResultTimer(){ 
@@ -126,17 +109,6 @@ function stopRealTimeTimer() {
   }
 }
 
-function showKeepRecordingButton() {
-  if (ui.keepRecordingBtn) {
-    ui.keepRecordingBtn.style.display = 'block';
-  }
-}
-
-function hideKeepRecordingButton() {
-  if (ui.keepRecordingBtn) {
-    ui.keepRecordingBtn.style.display = 'none';
-  }
-}
 
 const TARGET_SAMPLE_RATE = 44100; const CHUNK_SECONDS = 4.0; let buffer441Mono = new Float32Array(0);
 function setStatus(t){ ui.status.textContent=t; }
@@ -599,7 +571,6 @@ async function initUI(){
   ui.authBtn=document.getElementById('authBtn');
   ui.authStatus=document.getElementById('authStatus');
   ui.recordingTimer=document.getElementById('recordingTimer');
-  ui.keepRecordingBtn=document.getElementById('keepRecordingBtn');
   ui.ragasBtn=document.getElementById('ragasBtn');
   ui.ragasModal=document.getElementById('ragasModal');
   ui.ragasModalClose=document.getElementById('ragasModalClose');
