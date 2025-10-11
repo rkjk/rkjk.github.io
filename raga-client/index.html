@@ -7,6 +7,9 @@ permalink: /raga-client/
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; connect-src 'self' https://raga-server-103463628326.asia-south1.run.app wss://raga-server-103463628326.asia-south1.run.app https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:;">
+    
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
     <link rel="manifest" href="{{ site.baseurl }}/raga-client/manifest.webmanifest" />
@@ -18,14 +21,22 @@ permalink: /raga-client/
       h1 { font-size: 1.25rem; margin: 12px 0; color: #fff; }
       .card { background: #0a0a0a; border: 1px solid #262626; border-radius: 12px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.6); }
       .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-      input[type="text"] { flex: 1; min-width: 240px; padding: 12px; border-radius: 10px; border: 1px solid #404040; background: #0a0a0a; color: #fff; }
-      button { padding: 12px 16px; border-radius: 10px; border: 1px solid #1f3a8a; background: #1d4ed8; color: #fff; font-weight: 600; letter-spacing: .2px; }
+      input[type="text"], input[type="password"] { flex: 1; min-width: 240px; padding: 12px; border-radius: 10px; border: 1px solid #404040; background: #0a0a0a; color: #fff; }
+      button { padding: 12px 16px; border-radius: 10px; border: 1px solid #1f3a8a; background: #1d4ed8; color: #fff; font-weight: 600; letter-spacing: .2px; cursor: pointer; }
       button.secondary { border-color: #075985; background: #0284c7; }
       button.warning { border-color: #7f1d1d; background: #b91c1c; }
-      button:disabled { background: #475569; border-color: #334155; opacity: .7; }
+      button:disabled { background: #475569; border-color: #334155; opacity: .7; cursor: not-allowed; }
       .status { margin-top: 12px; font-size: .95rem; opacity: .95; color: #e5e7eb; }
-      .log { margin-top: 12px; max-height: 40vh; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .9rem; background: #111; border: 1px solid #262626; border-radius: 10px; padding: 12px; white-space: pre-wrap; color: #d4d4d4; }
-      .footer { margin-top: 24px; font-size: .85rem; opacity: .9; color: #d4d4d4; }
+      
+      /* Audio Input Settings */
+      .audio-settings { background: #111; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #262626; }
+      .audio-settings h3 { margin-top: 0; margin-bottom: 15px; font-size: 16px; color: #fff; }
+      .audio-settings label { display: block; margin-bottom: 5px; font-weight: 600; color: #e5e7eb; }
+      .audio-settings select { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #404040; background: #0a0a0a; color: #fff; font-size: 14px; }
+      .audio-settings p { font-size: 12px; color: #9ca3af; margin-top: 5px; margin-bottom: 0; }
+      .audio-settings .device-row { display: flex; gap: 10px; align-items: center; }
+      .audio-settings .device-row select { flex: 1; }
+      .audio-settings .device-row button { padding: 8px 12px; font-size: 14px; white-space: nowrap; }
       
       /* Modal styles */
       .modal-overlay {
@@ -139,23 +150,25 @@ permalink: /raga-client/
       .ragas-table tr:hover {
         background: #111;
       }
+      
+      /* Recording timer */
+      .recording-timer {
+        display: inline-block;
+        margin-left: 12px;
+        font-weight: 700;
+        color: #ef4444;
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:8px;">
-        <button id="ragasBtn" class="secondary" style="cursor:pointer;">Supported Ragas</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+        <div id="recordingTimer" class="recording-timer">Time: 00:00</div>
+        <button id="ragasBtn" class="secondary">Supported Ragas</button>
       </div>
       <h1>Raga Recognizer</h1>
-      <div class="card">
-        <div class="row">
-          <button id="startBtn" class="secondary">Start Recording</button>
-          <button id="stopBtn" class="warning" disabled>Stop Recording</button>
-        </div>
-        <div class="status" id="status">Idle</div>
-      </div>
-
-      <div class="card" style="margin-top:12px;" id="authCard">
+      
+      <div class="card" id="authCard">
         <h1 style="margin-top:0">Alpha Access</h1>
         <p style="margin:8px 0; opacity:.8;">This is an alpha version. Please enter the password to continue.</p>
         <div class="row" style="gap:8px; margin-top:12px;">
@@ -165,27 +178,61 @@ permalink: /raga-client/
         <div id="authStatus" class="status" style="margin-top:8px;"></div>
       </div>
 
-      <div class="card" style="margin-top:12px; display:none;" id="resultCard">
-        <h1 style="margin-top:0">Result</h1>
-        <div class="row" style="gap:16px;">
-          <div>
-            <div style="opacity:.7; font-size:.85rem;">Raga</div>
-            <div id="ragaName" style="font-size:1.1rem; font-weight:700;">—</div>
+      <div class="card" style="display:none;" id="resultCard">
+        <div class="audio-settings">
+          <h3>Audio Input Settings</h3>
+          
+          <div style="margin-bottom: 15px;">
+            <label for="audioModeSelect">Recording Mode:</label>
+            <select id="audioModeSelect">
+              <option value="microphone">🎤 Microphone (Default)</option>
+              <option value="system-audio">💻 System Audio (Tab/Screen Share)</option>
+            </select>
+            <p>
+              <strong>Microphone:</strong> Records from your mic or audio input device<br>
+              <strong>System Audio:</strong> Captures audio from a browser tab or your screen (Desktop: Chrome/Edge only, Mobile: Limited support)
+            </p>
           </div>
+          
           <div>
-            <div style="opacity:.7; font-size:.85rem;">Confidence</div>
-            <div id="ragaConf" style="font-size:1.1rem; font-weight:700;">—</div>
+            <label for="audioSourceSelect">Microphone Device:</label>
+            <div class="device-row">
+              <select id="audioSourceSelect">
+                <option value="">Default Microphone</option>
+              </select>
+              <button id="refreshDevicesBtn" class="secondary">🔄 Refresh</button>
+            </div>
+            <p>Select your audio input (mic, line-in, virtual audio cable, etc.)</p>
           </div>
         </div>
-      </div>
 
-      <div class="card" style="margin-top:12px;">
-        <h1 style="margin-top:0">History (last 5)</h1>
-        <div id="historyList" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <div class="row">
+          <button id="startBtn" class="secondary">Start Recording</button>
+          <button id="stopBtn" class="warning" disabled>Stop Recording</button>
+        </div>
+        <div class="status" id="status">Ready to analyze ragas</div>
+
+        <div style="margin-top:20px;">
+          <h1 style="margin-top:0">Current Result</h1>
+          <div class="row" style="gap:16px;">
+            <div>
+              <div style="opacity:.7; font-size:.85rem;">Raga</div>
+              <div id="ragaName" style="font-size:1.1rem; font-weight:700;">—</div>
+            </div>
+            <div>
+              <div style="opacity:.7; font-size:.85rem;">Confidence</div>
+              <div id="ragaConf" style="font-size:1.1rem; font-weight:700;">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;">
+          <h1 style="margin-top:0">History (last 5)</h1>
+          <div id="historyList" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
       </div>
     </div>
 
-    <!-- Ragas Modal -->
     <div id="ragasModal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -209,8 +256,6 @@ permalink: /raga-client/
       </div>
     </div>
 
-    <script type="module" src="{{ site.baseurl }}/raga-client/app.js?v=7"></script>
+    <script type="module" src="{{ site.baseurl }}/raga-client/app.js?v=8"></script>
   </body>
 </html>
-
-

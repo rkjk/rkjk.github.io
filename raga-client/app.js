@@ -1,4 +1,4 @@
-const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null, recordingTimer: null, keepRecordingBtn: null, ragasBtn: null, ragasModal: null, ragasModalClose: null, ragasSearch: null, ragasCount: null, ragasList: null };
+const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null, recordingTimer: null, keepRecordingBtn: null, ragasBtn: null, ragasModal: null, ragasModalClose: null, ragasSearch: null, ragasCount: null, ragasList: null, audioSourceSelect: null, refreshDevicesBtn: null, audioModeSelect: null };
 
 // No longer using a global clientId - will be generated per connection
 let currentClientId = null;
@@ -24,6 +24,8 @@ let timerStartTime = 0;
 
 let authToken = null; 
 let isAuthenticated = false;
+let selectedDeviceId = null; // Track selected audio device
+let audioMode = 'microphone'; // 'microphone' or 'system-audio'
 
 // Ragas data
 const RAGAS_25 = ["Saveri","Hemavathi","Thodi","Sindhubhairavi","Sankarabharanam","Kambhoji","Kalyani","Bhairavi","Mohanam","Anandabhairavi","Mukhari","Reethigowla","Panthuvarali","Madhyamavathi","Dhanyasi","Mayamalavagowla","Suruti","Kedaragowla","Khamas","Kapi","Begada","Sowrashtram","Karaharapriya","Nata","Atana"];
@@ -267,6 +269,68 @@ async function checkExistingAuth() {
 
 async function ensureServiceWorker(){ try{ const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1'; if('serviceWorker' in navigator){ if(isLocalhost){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); } } else { await navigator.serviceWorker.register(`${document.baseURI.endsWith('/')?document.baseURI.slice(0,-1):document.baseURI}/service-worker.js`.replace(/\/index\.html$/,'')); } } } catch(e){} }
 
+// Audio device enumeration
+async function loadAudioDevices() {
+  if (!ui.audioSourceSelect) return;
+  
+  try {
+    // Request permission first to get device labels - but catch the error gracefully
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (permissionError) {
+      console.log('Microphone permission not granted yet, showing default options');
+    }
+    
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(device => device.kind === 'audioinput');
+    
+    ui.audioSourceSelect.innerHTML = '';
+    
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Default Microphone';
+    ui.audioSourceSelect.appendChild(defaultOption);
+    
+    // Add all audio input devices
+    audioInputs.forEach((device, index) => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.textContent = device.label || `Microphone ${index + 1}`;
+      ui.audioSourceSelect.appendChild(option);
+    });
+    
+    // Restore previously selected device if any
+    if (selectedDeviceId) {
+      ui.audioSourceSelect.value = selectedDeviceId;
+    }
+    
+    console.log(`Found ${audioInputs.length} audio input device(s)`);
+  } catch (error) {
+    console.error('Error enumerating audio devices:', error);
+    // Don't show error to user if devices can't be enumerated yet
+  }
+}
+
+// Update UI based on audio mode selection
+function updateAudioModeUI() {
+  if (!ui.audioSourceSelect || !ui.refreshDevicesBtn) return;
+  
+  if (audioMode === 'system-audio') {
+    // Disable microphone selection when using system audio
+    ui.audioSourceSelect.disabled = true;
+    ui.refreshDevicesBtn.disabled = true;
+    ui.audioSourceSelect.style.opacity = '0.5';
+    ui.refreshDevicesBtn.style.opacity = '0.5';
+  } else {
+    // Enable microphone selection
+    ui.audioSourceSelect.disabled = false;
+    ui.refreshDevicesBtn.disabled = false;
+    ui.audioSourceSelect.style.opacity = '1';
+    ui.refreshDevicesBtn.style.opacity = '1';
+  }
+}
+
 // Enhanced WebSocket connection with better cold start handling
 function connectWebSocket(){ 
   if (!isAuthenticated || !authToken) {
@@ -419,65 +483,127 @@ function flushIfNeeded(){
 async function startRecording(){
   if(sending) return;
   sending=true;
-  recordingStartTime = Date.now(); // Track start time
+  recordingStartTime = Date.now();
   ui.startBtn.disabled=true;
   ui.stopBtn.disabled=false;
-  setStatus('Requesting microphone...');
+  setStatus('Requesting audio access...');
   
   // Start the absolute recording timer
   armTotalRecordingTimer();
   startRealTimeTimer();
   
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ 
-      audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }, 
-      video:false 
-    });
-    
-    audioContext = new (window.AudioContext||window.webkitAudioContext)();
-    
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
-    
-    const source = audioContext.createMediaStreamSource(mediaStream);
-    
-    try {
-      await audioContext.audioWorklet.addModule(`${new URL('worklet-processor.js', document.baseURI)}`);
-      processorNode = new AudioWorkletNode(audioContext, 'mic-capture-processor', { numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[1] });
-      processorNode.port.onmessage = (event) => {
-        if (!sending) return;
-        const { samples } = event.data;
-        const converted = convertToMono44100(samples, audioContext.sampleRate, 1);
-        buffer441Mono = appendToBuffer(buffer441Mono, converted);
-        flushIfNeeded();
-      };
-      source.connect(processorNode);
-      processorNode.connect(audioContext.destination);
-      setStatus('Recording (worklet)');
-      
-    } catch(err) {
-      console.warn('AudioWorklet failed, falling back to ScriptProcessor.', err);
-      const bufferSize = 2048;
-      const scriptNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
-      processorNode = scriptNode;
-      scriptNode.onaudioprocess = (e) => {
-        if (!sending) return;
-        const input = e.inputBuffer.getChannelData(0);
-        const copied = new Float32Array(input.length);
-        copied.set(input);
-        const converted = convertToMono44100(copied, audioContext.sampleRate, 1);
-        buffer441Mono = appendToBuffer(buffer441Mono, converted);
-        flushIfNeeded();
-      };
-      source.connect(scriptNode);
-      scriptNode.connect(audioContext.destination);
-      setStatus('Recording (script)');
+    // Choose audio source based on mode
+    if (audioMode === 'system-audio') {
+      // Use getDisplayMedia for system audio capture
+      await startSystemAudioRecording();
+    } else {
+      // Use getUserMedia for microphone
+      await startMicrophoneRecording();
     }
     
   } catch(e) {
-    setStatus(`Error: ${e.message}. Please allow microphone access.`);
+    const modeText = audioMode === 'system-audio' ? 'system audio' : 'microphone';
+    setStatus(`Error: ${e.message}. Please allow ${modeText} access.`);
     stopRecording();
+  }
+}
+
+async function startMicrophoneRecording() {
+  // Get the selected device ID
+  const deviceId = ui.audioSourceSelect ? ui.audioSourceSelect.value : null;
+  selectedDeviceId = deviceId;
+  
+  // Build audio constraints
+  const audioConstraints = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false
+  };
+  
+  // Add device ID if specified
+  if (deviceId) {
+    audioConstraints.deviceId = { exact: deviceId };
+  }
+  
+  mediaStream = await navigator.mediaDevices.getUserMedia({ 
+    audio: audioConstraints, 
+    video: false 
+  });
+  
+  await setupAudioProcessing('Microphone');
+}
+
+async function startSystemAudioRecording() {
+  // Check if getDisplayMedia is supported
+  if (!navigator.mediaDevices.getDisplayMedia) {
+    throw new Error('System audio capture not supported in this browser. Try Chrome or Edge.');
+  }
+  
+  // Request screen/tab sharing with audio
+  mediaStream = await navigator.mediaDevices.getDisplayMedia({
+    video: true, // Required by spec, but we'll ignore the video
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      suppressLocalAudioPlayback: false
+    }
+  });
+  
+  // Check if audio track exists
+  const audioTracks = mediaStream.getAudioTracks();
+  if (audioTracks.length === 0) {
+    throw new Error('No audio track in the shared content. Make sure to check "Share audio" when selecting.');
+  }
+  
+  // Stop and remove video track since we don't need it
+  const videoTracks = mediaStream.getVideoTracks();
+  videoTracks.forEach(track => track.stop());
+  
+  await setupAudioProcessing('System Audio');
+}
+
+async function setupAudioProcessing(sourceLabel) {
+  audioContext = new (window.AudioContext||window.webkitAudioContext)();
+  
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
+  
+  const source = audioContext.createMediaStreamSource(mediaStream);
+  
+  try {
+    await audioContext.audioWorklet.addModule(`${new URL('worklet-processor.js', document.baseURI)}`);
+    processorNode = new AudioWorkletNode(audioContext, 'mic-capture-processor', { numberOfInputs:1, numberOfOutputs:1, outputChannelCount:[1] });
+    processorNode.port.onmessage = (event) => {
+      if (!sending) return;
+      const { samples } = event.data;
+      const converted = convertToMono44100(samples, audioContext.sampleRate, 1);
+      buffer441Mono = appendToBuffer(buffer441Mono, converted);
+      flushIfNeeded();
+    };
+    source.connect(processorNode);
+    processorNode.connect(audioContext.destination);
+    setStatus(`Recording from ${sourceLabel} (worklet)`);
+    
+  } catch(err) {
+    console.warn('AudioWorklet failed, falling back to ScriptProcessor.', err);
+    const bufferSize = 2048;
+    const scriptNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
+    processorNode = scriptNode;
+    scriptNode.onaudioprocess = (e) => {
+      if (!sending) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const copied = new Float32Array(input.length);
+      copied.set(input);
+      const converted = convertToMono44100(copied, audioContext.sampleRate, 1);
+      buffer441Mono = appendToBuffer(buffer441Mono, converted);
+      flushIfNeeded();
+    };
+    source.connect(scriptNode);
+    scriptNode.connect(audioContext.destination);
+    setStatus(`Recording from ${sourceLabel} (script)`);
   }
 }
 
@@ -554,6 +680,9 @@ async function initUI(){
   ui.ragasSearch=document.getElementById('ragasSearch');
   ui.ragasCount=document.getElementById('ragasCount');
   ui.ragasList=document.getElementById('ragasList');
+  ui.audioSourceSelect=document.getElementById('audioSourceSelect');
+  ui.refreshDevicesBtn=document.getElementById('refreshDevicesBtn');
+  ui.audioModeSelect=document.getElementById('audioModeSelect');
   
   if(!ui.startBtn||!ui.stopBtn||!ui.status||!ui.ragaName||!ui.ragaConf||!ui.historyList){ return; } 
   
@@ -563,6 +692,11 @@ async function initUI(){
   
   // Call the enhanced checkExistingAuth function
   await checkExistingAuth();
+  
+  // Load audio devices after auth check
+  if (isAuthenticated && ui.audioSourceSelect) {
+    await loadAudioDevices();
+  }
   
   if (ui.authBtn && ui.passwordInput) {
     ui.authBtn.addEventListener('click', async ()=>{
@@ -577,6 +711,8 @@ async function initUI(){
       if (success) {
         localStorage.setItem('raga_auth_token', authToken);
         ui.passwordInput.value = ''; // Clear password field
+        // Load audio devices after successful login
+        await loadAudioDevices();
       }
     });
     
@@ -591,6 +727,40 @@ async function initUI(){
       if (ui.authStatus.textContent.includes('❌') || ui.authStatus.textContent.includes('⚠️')) {
         setAuthStatus('');
       }
+    });
+  }
+  
+  // Audio mode selection
+  if (ui.audioModeSelect) {
+    ui.audioModeSelect.addEventListener('change', (e) => {
+      audioMode = e.target.value;
+      updateAudioModeUI();
+      console.log('Audio mode changed to:', audioMode);
+      
+      // Update status message
+      if (audioMode === 'system-audio') {
+        setStatus('💻 System audio mode selected. Click start to share a tab/screen with audio.');
+      } else {
+        setStatus('🎤 Microphone mode selected. Ready to record.');
+      }
+    });
+    
+    // Set initial UI state
+    updateAudioModeUI();
+  }
+  
+  // Audio device selection listeners
+  if (ui.audioSourceSelect) {
+    ui.audioSourceSelect.addEventListener('change', (e) => {
+      selectedDeviceId = e.target.value;
+      console.log('Selected audio device:', selectedDeviceId || 'default');
+    });
+  }
+  
+  if (ui.refreshDevicesBtn) {
+    ui.refreshDevicesBtn.addEventListener('click', async () => {
+      await loadAudioDevices();
+      setStatus('🔄 Audio devices refreshed');
     });
   }
   
