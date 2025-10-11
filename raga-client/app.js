@@ -1,8 +1,12 @@
-
 const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null, recordingTimer: null, keepRecordingBtn: null, ragasBtn: null, ragasModal: null, ragasModalClose: null, ragasSearch: null, ragasCount: null, ragasList: null };
-const clientId = Math.floor(1000 + Math.random() * 9000);
+
+// No longer using a global clientId - will be generated per connection
+let currentClientId = null;
+
 let websocket = null, mediaStream = null, audioContext = null, processorNode = null, sending = false;
+
 let currentResult = null; 
+
 const historyResults = []; 
 
 // Enhanced timeout constants
@@ -32,6 +36,11 @@ const ragasData = ALL_RAGAS.map(name => ({ name })).sort((a, b) => a.name.locale
 
 const AUTH_SERVER_URL = "https://raga-server-103463628326.asia-south1.run.app"
 const SERVER_URL = "wss://raga-server-103463628326.asia-south1.run.app/ws";
+
+// Generate a UUID v4 using native crypto API
+function generateUUID() {
+  return crypto.randomUUID();
+}
 
 // Enhanced timer management functions
 function clearAllTimers() {
@@ -108,7 +117,6 @@ function stopRealTimeTimer() {
     ui.recordingTimer.textContent = 'Time: 00:00';
   }
 }
-
 
 const TARGET_SAMPLE_RATE = 44100; const CHUNK_SECONDS = 4.0; let buffer441Mono = new Float32Array(0);
 function setStatus(t){ ui.status.textContent=t; }
@@ -266,6 +274,10 @@ function connectWebSocket(){
     return Promise.reject('Not authenticated');
   }
   
+  // Generate a NEW client ID for each connection
+  currentClientId = generateUUID();
+  console.log('Generated new client ID:', currentClientId);
+  
   if(websocket && (websocket.readyState===WebSocket.OPEN || websocket.readyState===WebSocket.CONNECTING)){ 
     return new Promise((resolve)=>{ 
       if(websocket.readyState===WebSocket.OPEN) return resolve(); 
@@ -297,8 +309,8 @@ function connectWebSocket(){
       const data=JSON.parse(ev.data); 
       if(data.status==='authenticated'){
         setStatus('✅ Connected and ready to analyze');
-        // Now that we're authenticated, send the client ID
-        websocket.send(JSON.stringify({ client_id: clientId })); 
+        // Now that we're authenticated, send the NEW client ID
+        websocket.send(JSON.stringify({ client_id: currentClientId })); 
         ui.stopBtn.disabled=false;
         resetNoResultTimer();
       } else if(data.status==='error'){
@@ -379,14 +391,12 @@ function convertToMono44100(input, sampleRate, channelCount){
   return out;
 }
 
-
 function appendToBuffer(existing, chunk){
   const out=new Float32Array(existing.length+chunk.length);
   out.set(existing,0);
   out.set(chunk, existing.length);
   return out;
 }
-
 
 function flushIfNeeded(){
   const targetSamples = Math.floor(CHUNK_SECONDS*TARGET_SAMPLE_RATE);
@@ -398,7 +408,7 @@ function flushIfNeeded(){
     if(websocket && websocket.readyState===WebSocket.OPEN){
       const audio_data=float32ToBase64(sendChunk);
       const msg={
-        client_id: clientId,
+        client_id: currentClientId,
         audio_data
         };
       websocket.send(JSON.stringify(msg));
@@ -500,39 +510,6 @@ function stopRecording(){
   ui.startBtn.disabled=false; 
   ui.stopBtn.disabled=true; 
 }
-
-// Add CSS for spinner animation (add this to your HTML head or CSS file)
-const spinnerCSS = `
-<style>
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid #f3f3f3;
-  border-top: 2px solid #333;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-right: 6px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.auth-status {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.auth-status:empty {
-  display: none;
-}
-</style>
-`;
 
 // Inject spinner CSS if it doesn't exist
 if (!document.querySelector('style[data-spinner-css]')) {
@@ -750,5 +727,6 @@ function renderRagasList(filter) {
 }
 
 (async ()=>{ await ensureServiceWorker(); if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', initUI, { once:true }); } else { initUI(); } })();
+
 window.addEventListener('pagehide', ()=>{ try{ stopRecording(); }catch(_){} try{ closeWebSocket(); }catch(_){} });
 window.addEventListener('beforeunload', ()=>{ try{ stopRecording(); }catch(_){} try{ closeWebSocket(); }catch(_){} });
