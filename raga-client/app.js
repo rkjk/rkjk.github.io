@@ -1,4 +1,4 @@
-const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null, recordingTimer: null, keepRecordingBtn: null, ragasBtn: null, ragasModal: null, ragasModalClose: null, ragasSearch: null, ragasCount: null, ragasList: null, audioSourceSelect: null, refreshDevicesBtn: null, audioModeSelect: null };
+const ui = { startBtn: null, stopBtn: null, status: null, ragaName: null, ragaConf: null, historyList: null, authCard: null, resultCard: null, passwordInput: null, authBtn: null, authStatus: null, recordingTimer: null, keepRecordingBtn: null, ragasBtn: null, ragasModal: null, ragasModalClose: null, ragasSearch: null, ragasCount: null, ragasList: null, audioSourceSelect: null, refreshDevicesBtn: null, audioModeSelect: null, inputLevelFill: null, inputLevelDb: null };
 
 // No longer using a global clientId - will be generated per connection
 let currentClientId = null;
@@ -36,7 +36,7 @@ const EXP_65_77 = ["Kunthalavarali","Charukesi","Paadi","Paras","Subhapanthuvara
 const ALL_RAGAS = [...RAGAS_25, ...RAGAS_25_5, ...EXP_30_35, ...EXP_65_77];
 const ragasData = ALL_RAGAS.map(name => ({ name })).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
-const AUTH_SERVER_URL = "https://raga-server-103463628326.asia-south1.run.app"
+const AUTH_SERVER_URL = "https://raga-server-103463628326.asia-south1.run.app";
 const SERVER_URL = "wss://raga-server-103463628326.asia-south1.run.app/ws";
 
 // Generate a UUID v4 using native crypto API
@@ -121,7 +121,26 @@ function stopRealTimeTimer() {
 }
 
 const TARGET_SAMPLE_RATE = 44100; const CHUNK_SECONDS = 4.0; let buffer441Mono = new Float32Array(0);
+const SILENT_RMS_THRESHOLD = 0.0001;
+let consecutiveSilentChunks = 0;
+
 function setStatus(t){ ui.status.textContent=t; }
+function rmsOfChunk(samples){
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / samples.length);
+}
+function updateInputLevelMeter(rms) {
+  if (!ui.inputLevelFill || !ui.inputLevelDb) return;
+  const db = rms <= 0 ? -100 : Math.max(-60, 20 * Math.log10(rms));
+  const pct = Math.min(100, Math.max(0, (db + 60) / 60 * 100));
+  ui.inputLevelFill.style.width = pct + '%';
+  ui.inputLevelDb.textContent = rms < 1e-6 ? '—' : db.toFixed(1) + ' dB';
+}
+function hideInputLevelMeter() {
+  if (ui.inputLevelFill) ui.inputLevelFill.style.width = '0%';
+  if (ui.inputLevelDb) ui.inputLevelDb.textContent = '—';
+}
 function setAuthStatus(t){ if(ui.authStatus) ui.authStatus.textContent=t; }
 function float32ToBase64(arr){ const bytes=new Uint8Array(arr.buffer); let binary=''; const chunk=0x8000; for(let i=0;i<bytes.length;i+=chunk){ const sub=bytes.subarray(i,i+chunk); binary+=String.fromCharCode.apply(null, sub);} return btoa(binary); }
 
@@ -316,18 +335,26 @@ async function loadAudioDevices() {
 function updateAudioModeUI() {
   if (!ui.audioSourceSelect || !ui.refreshDevicesBtn) return;
   
+  const systemAudioHint = document.getElementById('systemAudioHint');
+  const linuxHintEl = document.getElementById('linuxHint');
+  const inputLevelHint = document.getElementById('inputLevelHint');
+  
   if (audioMode === 'system-audio') {
-    // Disable microphone selection when using system audio
     ui.audioSourceSelect.disabled = true;
     ui.refreshDevicesBtn.disabled = true;
     ui.audioSourceSelect.style.opacity = '0.5';
     ui.refreshDevicesBtn.style.opacity = '0.5';
+    if (systemAudioHint) systemAudioHint.style.display = 'block';
+    if (linuxHintEl) linuxHintEl.style.display = 'none';
+    if (inputLevelHint) inputLevelHint.textContent = 'If the bar stays at -60 dB: share again, tick "Share audio" in the dialog, and play something in that tab.';
   } else {
-    // Enable microphone selection
     ui.audioSourceSelect.disabled = false;
     ui.refreshDevicesBtn.disabled = false;
     ui.audioSourceSelect.style.opacity = '1';
     ui.refreshDevicesBtn.style.opacity = '1';
+    if (systemAudioHint) systemAudioHint.style.display = 'none';
+    if (linuxHintEl && isLinux()) linuxHintEl.style.display = 'block';
+    if (inputLevelHint) inputLevelHint.textContent = 'If the bar stays at -60 dB: pick another mic in the dropdown, or check OS/browser mic permission.';
   }
 }
 
@@ -410,10 +437,13 @@ function connectWebSocket(){
     setStatus('❌ Connection error occurred');
   }; 
   
-  websocket.onclose=()=>{ 
+  websocket.onclose=(ev)=>{ 
     clearTimeout(connectionTimeout);
-    setStatus('🔌 Disconnected from server'); 
-    stopRecording(); 
+    // Only react if this close is for the socket we're still using (ignore stale closes from a previous connection)
+    if (ev.target === websocket) {
+      setStatus('🔌 Disconnected from server'); 
+      stopRecording(); 
+    }
   };
   
   return new Promise((resolve)=>setTimeout(resolve,0));
@@ -470,11 +500,23 @@ function flushIfNeeded(){
     buffer441Mono=new Float32Array(remaining.length);
     buffer441Mono.set(remaining,0);
     if(websocket && websocket.readyState===WebSocket.OPEN){
+      const rms = rmsOfChunk(sendChunk);
+      if (rms < SILENT_RMS_THRESHOLD) {
+        consecutiveSilentChunks++;
+        if (consecutiveSilentChunks >= 2) {
+          const hint = audioMode === 'system-audio'
+            ? '⚠️ No audio. Share again, tick "Share audio", and play something in the tab.'
+            : '⚠️ No audio. Try another mic in the dropdown, or check OS/browser mic permission and volume.';
+          setStatus(hint);
+        }
+      } else {
+        consecutiveSilentChunks = 0;
+      }
       const audio_data=float32ToBase64(sendChunk);
       const msg={
         client_id: currentClientId,
         audio_data
-        };
+      };
       websocket.send(JSON.stringify(msg));
     }
   }
@@ -483,6 +525,7 @@ function flushIfNeeded(){
 async function startRecording(){
   if(sending) return;
   sending=true;
+  consecutiveSilentChunks = 0;
   recordingStartTime = Date.now();
   ui.startBtn.disabled=true;
   ui.stopBtn.disabled=false;
@@ -530,7 +573,8 @@ async function startMicrophoneRecording() {
     audio: audioConstraints, 
     video: false 
   });
-  
+  const tracks = mediaStream.getAudioTracks();
+  console.log('Microphone tracks:', tracks.length, tracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })));
   await setupAudioProcessing('Microphone');
 }
 
@@ -560,12 +604,18 @@ async function startSystemAudioRecording() {
   // Stop and remove video track since we don't need it
   const videoTracks = mediaStream.getVideoTracks();
   videoTracks.forEach(track => track.stop());
-  
+  console.log('System audio tracks:', audioTracks.length, audioTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })));
   await setupAudioProcessing('System Audio');
 }
 
+function isLinux() {
+  return /Linux/.test(navigator.userAgent);
+}
+
 async function setupAudioProcessing(sourceLabel) {
-  audioContext = new (window.AudioContext||window.webkitAudioContext)();
+  // On Linux, use explicit 44.1k to avoid default-device/resampling issues
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  audioContext = isLinux() ? new Ctx({ sampleRate: 44100 }) : new Ctx();
   
   if (audioContext.state === 'suspended') {
     await audioContext.resume();
@@ -579,12 +629,14 @@ async function setupAudioProcessing(sourceLabel) {
     processorNode.port.onmessage = (event) => {
       if (!sending) return;
       const { samples } = event.data;
+      updateInputLevelMeter(rmsOfChunk(samples));
       const converted = convertToMono44100(samples, audioContext.sampleRate, 1);
       buffer441Mono = appendToBuffer(buffer441Mono, converted);
       flushIfNeeded();
     };
     source.connect(processorNode);
     processorNode.connect(audioContext.destination);
+    console.log('Capture: worklet, sampleRate=', audioContext.sampleRate);
     setStatus(`Recording from ${sourceLabel} (worklet)`);
     
   } catch(err) {
@@ -597,12 +649,14 @@ async function setupAudioProcessing(sourceLabel) {
       const input = e.inputBuffer.getChannelData(0);
       const copied = new Float32Array(input.length);
       copied.set(input);
+      updateInputLevelMeter(rmsOfChunk(copied));
       const converted = convertToMono44100(copied, audioContext.sampleRate, 1);
       buffer441Mono = appendToBuffer(buffer441Mono, converted);
       flushIfNeeded();
     };
     source.connect(scriptNode);
     scriptNode.connect(audioContext.destination);
+    console.log('Capture: script, sampleRate=', audioContext.sampleRate);
     setStatus(`Recording from ${sourceLabel} (script)`);
   }
 }
@@ -611,6 +665,7 @@ function stopRecording(){
   if(!sending) return; 
   sending=false; 
   recordingStartTime = null;
+  hideInputLevelMeter();
   
   setStatus('Stopped'); 
   
@@ -683,6 +738,10 @@ async function initUI(){
   ui.audioSourceSelect=document.getElementById('audioSourceSelect');
   ui.refreshDevicesBtn=document.getElementById('refreshDevicesBtn');
   ui.audioModeSelect=document.getElementById('audioModeSelect');
+  ui.inputLevelFill=document.getElementById('inputLevelFill');
+  ui.inputLevelDb=document.getElementById('inputLevelDb');
+  const linuxHintEl = document.getElementById('linuxHint');
+  if (linuxHintEl && isLinux()) linuxHintEl.style.display = 'block';
   
   if(!ui.startBtn||!ui.stopBtn||!ui.status||!ui.ragaName||!ui.ragaConf||!ui.historyList){ return; } 
   

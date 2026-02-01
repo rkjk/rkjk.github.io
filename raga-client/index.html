@@ -1,17 +1,10 @@
----
-layout: default
-title: Raga Live Inference
-permalink: /raga-client/
----
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; connect-src 'self' https://raga-server-103463628326.asia-south1.run.app wss://raga-server-103463628326.asia-south1.run.app https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:;">
-    
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; connect-src 'self' https://raga-server-103463628326.asia-south1.run.app wss://raga-server-103463628326.asia-south1.run.app https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:;" />
     <link rel="manifest" href="{{ site.baseurl }}/raga-client/manifest.webmanifest" />
     <title>Raga Live Inference (PWA)</title>
     <style>
@@ -27,6 +20,7 @@ permalink: /raga-client/
       button.warning { border-color: #7f1d1d; background: #b91c1c; }
       button:disabled { background: #475569; border-color: #334155; opacity: .7; cursor: not-allowed; }
       .status { margin-top: 12px; font-size: .95rem; opacity: .95; color: #e5e7eb; }
+      .input-level-row { display: flex; align-items: center; gap: 8px; }
       
       /* Audio Input Settings */
       .audio-settings { background: #111; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #262626; }
@@ -190,8 +184,17 @@ permalink: /raga-client/
             </select>
             <p>
               <strong>Microphone:</strong> Records from your mic or audio input device<br>
-              <strong>System Audio:</strong> Captures audio from a browser tab or your screen (Desktop: Chrome/Edge only, Mobile not supported)
+              <strong>System Audio:</strong> Captures audio from a browser tab or your screen (Chrome/Edge)
             </p>
+            <div id="systemAudioHint" style="display:none; margin-top:10px; padding:10px; background:#1e293b; border-radius:8px; border:1px solid #334155;">
+              <strong style="color:#f59e0b;">Tab recording (Chrome):</strong>
+              <ol style="margin:8px 0 0 0; padding-left:18px; font-size:13px; color:#e2e8f0;">
+                <li>Click Start → when Chrome asks what to share, pick a <strong>tab</strong> (or window).</li>
+                <li>Tick <strong>&quot;Share audio&quot;</strong> in the dialog (must be checked).</li>
+                <li>Play music in that tab so there is audio to capture.</li>
+              </ol>
+              <p style="font-size:11px; color:#94a3b8; margin:8px 0 0 0;">If the level bar stays at -60 dB: share again and ensure &quot;Share audio&quot; is ticked; or try sharing the <strong>entire window</strong> instead of just the tab.</p>
+            </div>
           </div>
           
           <div>
@@ -210,6 +213,15 @@ permalink: /raga-client/
           <button id="startBtn" class="secondary">Start Recording</button>
           <button id="stopBtn" class="warning" disabled>Stop Recording</button>
         </div>
+        <div class="input-level-row" style="margin-top:8px;">
+          <span style="font-size:.9rem; opacity:.9;">Input level:</span>
+          <div class="input-level-bar" style="flex:1; max-width:200px; height:8px; background:#262626; border-radius:4px; overflow:hidden;">
+            <div id="inputLevelFill" style="height:100%; width:0%; background:#22c55e; transition: width 0.1s;"></div>
+          </div>
+          <span id="inputLevelDb" style="font-size:.85rem; opacity:.8; min-width:4em;">—</span>
+        </div>
+        <p id="inputLevelHint" class="input-level-hint" style="font-size:11px; color:#9ca3af; margin-top:4px; margin-bottom:0;">If the bar stays at -60 dB: check mic selection or (tab recording) tick &quot;Share audio&quot; and play something in the tab.</p>
+        <p id="linuxHint" class="input-level-hint" style="font-size:11px; color:#f59e0b; margin-top:4px; margin-bottom:0; display:none;">On Linux (mic): &quot;Default&quot; is often wrong—select your mic by name in the dropdown.</p>
         <div class="status" id="status">Ready to analyze ragas</div>
 
         <div style="margin-top:20px;">
@@ -256,6 +268,6 @@ permalink: /raga-client/
       </div>
     </div>
 
-    <script type="module" src="{{ site.baseurl }}/raga-client/app.js?v=8"></script>
+    <script type="module" src="{{ site.baseurl }}/raga-client/app.js?v=9"></script>
   </body>
 </html>
